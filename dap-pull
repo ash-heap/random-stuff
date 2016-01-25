@@ -1,0 +1,140 @@
+#!/bin/env python
+
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+from builtins import *
+
+
+import ipdb as pdb
+import netCDF4 as nc
+
+from progressbar import ProgressBar, Percentage, Bar, ETA, \
+                        SimpleProgress, AnimatedMarker
+
+
+def progress_wrapper(iterator, num):
+    progress_bar = ProgressBar(
+            widgets=[ETA(), " ", 
+                     "(", SimpleProgress(), ") ",
+                     Bar(marker="◼", left="[", right="]"), " ", 
+                     AnimatedMarker(markers="◐◓◑◒"), " ", 
+                     Percentage()],
+            max_value=num)
+    return progress_bar(iterator)
+
+
+class dap(object):
+
+    def __init__(
+            self, url, outfile="out.nc", var_list=None,
+            rename_dict={}, unlimited_dim="time"):
+        self.url = url
+        self.outfile = outfile
+        self.rename_dict = rename_dict
+        self.unlimited_dim = unlimited_dim
+        self.dataset = nc.Dataset(url, 'r')
+        if var_list is None:
+            self.var_list = list(self.dataset.variables.keys())
+        else:
+            self.var_list = var_list
+        self.__build_dim_list()
+        self.var_list = self.__sort_vars(self.var_list)
+        print(self.var_list)
+        print(self.dim_list)
+
+
+    def __build_dim_list(self):
+        dim_set = set()
+        for var in self.var_list:
+            for dim in self.dataset.variables[var].dimensions:
+                dim_set.add(dim)
+        self.dim_list = self.__sort_vars(dim_set)
+
+    def __sort_vars(self, vars_):
+        var_set = set(vars_)
+        sorted_var_list = []
+        for var in self.dataset.variables.keys():
+            if var in var_set:
+                sorted_var_list.append(var)
+        return sorted_var_list
+
+    def save(self):
+        with nc.Dataset(self.outfile, mode='w', format="NETCDF4") as root:
+            vars_, dims = self.__setup_outfile(root)
+            self.__save_vars(vars_)
+
+    def __setup_outfile(self, root):
+        print("Saving metadata...")
+        # Copy global attributes.
+        for attr in self.dataset.ncattrs():
+            root.setncattr(attr, self.__s(self.dataset.getncattr(attr)))
+        # Setup dimensions.
+        dims = {}
+        for dim in self.dim_list:
+            if dim == self.unlimited_dim:
+                size = None
+            else:
+                size = self.dataset.dimensions[dim].size
+            dims[dim] = root.createDimension(self.new_name(dim), size)
+        # Setup variables.
+        vars_ = {}
+        for var in (self.dim_list + self.var_list):
+            dimensions = self.dataset.variables[var].dimensions
+            dimensions = [self.new_name(x) for x in dimensions]
+            vars_[var] = root.createVariable(
+                    self.new_name(var), self.dataset.variables[var].dtype,
+                    dimensions=tuple(dimensions), zlib=True, complevel=9)
+            # Copy variable attributes.
+            for attr in self.dataset.variables[var].ncattrs():
+                vars_[var].setncattr(
+                        attr, 
+                        self.__s(self.dataset.variables[var].getncattr(attr)))
+        return vars_, dims
+
+    def __save_vars(self, vars_):
+        # Separate into variables containing unlimited dimensions and
+        # those that do not.
+        unlimited_var_list = []
+        static_var_list = []
+        for var in (self.dim_list + self.var_list):
+            if self.new_name(self.unlimited_dim) in vars_[var].dimensions:
+                unlimited_var_list.append(var)
+            else:
+                static_var_list.append(var)
+        # Handle static variables.
+        print("Saving non unlimited variables...")
+        for var in static_var_list:
+            vars_[var][:] = self.dataset.variables[var][:]
+        # Handle unlimited variables.
+        print("Saving unlimited variables...")
+        unlimited_length = self.dataset.variables[self.unlimited_dim].size
+        n = progress_wrapper(range(0, unlimited_length), unlimited_length)
+        print(unlimited_var_list)
+        for i in n:
+            for var in unlimited_var_list:
+                vars_[var][i] = self.dataset.variables[var][i]
+
+
+    def new_name(self, name):
+        try:
+            return self.rename_dict[name]
+        except KeyError:
+            return name
+
+    def __s(self, value):
+        if isinstance(value, str):
+            return value.encode('ascii')
+        else:
+            return value
+        
+
+
+if __name__ == "__main__":
+    var_list = ["ssh"]
+    url = "http://tds.hycom.org/thredds/dodsC/GOMl0.04/expt_31.0/hrly"
+    rename_dict = {'Longitude': "lon", 'Latitude': "lat", 'MT': "time"}
+    outfile = "hycom31_hourly_ssh.nc"
+    dap(url=url, outfile=outfile, var_list=var_list,
+            rename_dict=rename_dict, unlimited_dim="MT").save()
+
+
