@@ -1,0 +1,13 @@
+#!/bin/bash
+
+
+
+dir="$PWD"
+echo "$dir"
+find ! -iname ".*" | sed -e 's/[^\/]*\//+---/g' | while read line ; do 
+    echo $line | perl -pe 's/\+---(?!\w)/|   /g'
+done
+
+exit 0
+
+
