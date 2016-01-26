@@ -12,3 +12,5 @@ This might cause a conflict.
 ## FloatToFloat:
     Converts between float types in Haskell and if using GHC does some
     compiler specific trickery to attempt to compile out the conversion.
+
+## Partner: Jeong Min Lee
