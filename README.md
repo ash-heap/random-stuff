@@ -11,3 +11,6 @@
 ## FloatToFloat:
     Converts between float types in Haskell and if using GHC does some
     compiler specific trickery to attempt to compile out the conversion.
+
+## vimrc:
+    A Vim configuration file using vundle for package management.
